@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QR → Spreadsheet CSV 検索</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 0; }
+    .wrap { padding: 16px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { padding: 10px 14px; font-size: 16px; }
+    .status { margin-top: 10px; padding: 10px; background: #f3f3f3; border-radius: 8px; white-space: pre-wrap; }
+    .card { margin-top: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 10px; }
+    .grid { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; align-items: baseline; }
+    .label { color: #555; }
+    .value { font-weight: 600; }
+    .weight { font-size: 20px; font-weight: 800; }
+    .hidden { display: none !important; }
+
+    /* camera layer */
+    #cameraLayer {
+      position: fixed; inset: 0; background: #000; z-index: 9999;
+      display: flex; flex-direction: column;
+    }
+    #video {
+      width: 100%; height: 100%; object-fit: cover; flex: 1;
+      background: #000;
+    }
+    #camBar {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      display: flex; gap: 10px; padding: 12px;
+      background: linear-gradient(transparent, rgba(0,0,0,.65));
+    }
+    #camBar button { flex: 1; }
+    #hint {
+      position: absolute; left: 12px; right: 12px; top: 12px;
+      color: #fff; background: rgba(0,0,0,.45);
+      padding: 10px; border-radius: 10px; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="mainLayer">
+    <h2 style="margin: 0 0 10px;">QR → CSV検索</h2>
+
+    <div class="row">
+      <button id="btnStartCam" disabled>カメラ起動</button>
+      <button id="btnReloadCsv">データ更新</button>
+    </div>
+
+    <div class="status" id="status">起動中…</div>
+
+    <div class="card hidden" id="resultCard">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
+        <div>
+          <div style="font-size:14px; color:#666;">管理番号</div>
+          <div class="value" id="resId" style="font-size:18px;"></div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:14px; color:#666;">重量（g）</div>
+          <div class="weight" id="resWeight">-</div>
+        </div>
+      </div>
+      <hr style="border:none; border-top:1px solid #eee; margin:10px 0;">
+      <div class="grid">
+        <div class="label">メーカー</div><div class="value" id="resMaker">-</div>
+        <div class="label">母材</div><div class="value" id="resBase">-</div>
+        <div class="label">色</div><div class="value" id="resColor">-</div>
+        <div class="label">保管場所</div><div class="value" id="resLoc">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera layer -->
+  <div id="cameraLayer" class="hidden">
+    <video id="video" playsinline></video>
+    <div id="hint">QRコードをカメラに写してください（認識したら自動で停止します）</div>
+    <div id="camBar">
+      <button id="btnStopCam">カメラ停止</button>
+    </div>
+    <canvas id="canvas" class="hidden"></canvas>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    /**********************
+     * 設定（あなたの条件）
+     **********************/
+    const ENTRY_KEY = "entry.268306040";
+
+    // CSV 取得URL（export 方式）
+    const CSV_URL =
+      "https://docs.google.com/spreadsheets/d/15UGqdqOwVQNx9qY02HtZIaqrD6Kd1dwmWuj4p3EGIGg/export?format=csv&gid=93776902";
+
+    // ループ間隔（ms）: 200〜500 の範囲
+    const SCAN_INTERVAL_MS = 300;
+
+    /**********************
+     * 状態
+     **********************/
+    let csvRows = [];          // [{管理番号:..., メーカー:..., ...}, ...]
+    let csvLoaded = false;
+
+    let stream = null;
+    let scanning = false;
+    let scanTimer = null;
+
+    /**********************
+     * UI参照
+     **********************/
+    const statusEl = document.getElementById("status");
+    const btnStartCam = document.getElementById("btnStartCam");
+    const btnReloadCsv = document.getElementById("btnReloadCsv");
+
+    const cameraLayer = document.getElementById("cameraLayer");
+    const mainLayer = document.getElementById("mainLayer");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const btnStopCam = document.getElementById("btnStopCam");
+
+    const resultCard = document.getElementById("resultCard");
+    const resId = document.getElementById("resId");
+    const resMaker = document.getElementById("resMaker");
+    const resBase = document.getElementById("resBase");
+    const resColor = document.getElementById("resColor");
+    const resLoc = document.getElementById("resLoc");
+    const resWeight = document.getElementById("resWeight");
+
+    /**********************
+     * ユーティリティ
+     **********************/
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    function showResultCard(show) {
+      resultCard.classList.toggle("hidden", !show);
+    }
+
+    function sanitizeId(id) {
+      // 念のため前後空白除去（完全一致前提だけど安全策）
+      return String(id ?? "").trim();
+    }
+
+    function sanitizeWeight(w) {
+      // 数字・小数点・カンマ以外を除去（念のため）
+      const s = String(w ?? "").trim();
+      return s.replace(/[^0-9.,]/g, "");
+    }
+
+    function isProbablyMobile() {
+      // ざっくり判定（要件：スマホ/タブレット中心）
+      return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+
+    function extractEntryValueFromUrl(urlStr) {
+      try {
+        const u = new URL(urlStr);
+        const v = u.searchParams.get(ENTRY_KEY);
+        return v ? v : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function findRowById(id) {
+      const target = sanitizeId(id);
+      // 管理番号列で完全一致（trim込み）
+      return csvRows.find(r => sanitizeId(r["管理番号"]) === target) || null;
+    }
+
+    function renderRow(id, row) {
+      resId.textContent = sanitizeId(id);
+
+      // 表示項目
+      resMaker.textContent = row["メーカー"] ?? "-";
+      resBase.textContent  = row["母材(ベース)"] ?? row["母材"] ?? "-"; // 念のため表記ゆれ吸収
+      resColor.textContent = row["色"] ?? "-";
+      resLoc.textContent   = row["保管場所"] ?? "-";
+
+      // 必須：重量
+      const w = sanitizeWeight(row["重量（ｇ）"] ?? row["重量(g)"] ?? row["重量"] ?? "");
+      resWeight.textContent = w ? w : "（未設定）";
+
+      showResultCard(true);
+    }
+
+    /**********************
+     * CSV読み込み
+     **********************/
+    async function loadCsv() {
+      csvLoaded = false;
+      btnStartCam.disabled = true;
+      showResultCard(false);
+
+      setStatus("CSVを取得しています…");
+
+      try {
+        const res = await fetch(CSV_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error("CSV取得失敗: HTTP " + res.status);
+        const text = await res.text();
+
+        const parsed = Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true
+        });
+
+        if (parsed.errors && parsed.errors.length) {
+          console.warn(parsed.errors);
+        }
+
+        csvRows = parsed.data || [];
+        csvLoaded = true;
+        btnStartCam.disabled = false;
+
+        setStatus(
+          "CSV取得OK ✅\n" +
+          `件数: ${csvRows.length}\n` +
+          (isProbablyMobile() ? "端末: モバイル判定" : "端末: PC判定（動作はします）")
+        );
+      } catch (e) {
+        console.error(e);
+        setStatus(
+          "データを取得できませんでした ❌\n" +
+          "ネット接続や共有設定を確認してください。\n\n" +
+          "「データ更新」を押して再試行できます。"
+        );
+      }
+    }
+
+    /**********************
+     * カメラ起動/停止
+     **********************/
+    async function startCamera() {
+      if (!csvLoaded) {
+        setStatus("先にCSV取得が必要です。");
+        return;
+      }
+
+      // カメラが使えるか
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("カメラが見つかりません（getUserMedia非対応）");
+        return;
+      }
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        await video.play();
+
+        // layer切り替え
+        cameraLayer.classList.remove("hidden");
+        mainLayer.classList.add("hidden");
+
+        scanning = true;
+        loopScan();
+
+      } catch (e) {
+        console.error(e);
+        setStatus("カメラを起動できませんでした。権限やHTTPSを確認してください。");
+      }
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (scanTimer) {
+        clearTimeout(scanTimer);
+        scanTimer = null;
+      }
+
+      if (video) {
+        try { video.pause(); } catch {}
+        video.srcObject = null;
+      }
+
+      if (stream) {
+        for (const t of stream.getTracks()) t.stop();
+        stream = null;
+      }
+
+      // layer切り替え
+      cameraLayer.classList.add("hidden");
+      mainLayer.classList.remove("hidden");
+    }
+
+    function loopScan() {
+      if (!scanning) return;
+
+      // videoがまだ準備できてない場合は待つ
+      if (video.readyState < 2) {
+        scanTimer = setTimeout(loopScan, SCAN_INTERVAL_MS);
+        return;
+      }
+
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+
+      if (w === 0 || h === 0) {
+        scanTimer = setTimeout(loopScan, SCAN_INTERVAL_MS);
+        return;
+      }
+
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, w, h);
+
+      const img = ctx.getImageData(0, 0, w, h);
+      const code = jsQR(img.data, w, h);
+
+      if (code && code.data) {
+        const urlStr = code.data;
+        const id = extractEntryValueFromUrl(urlStr);
+
+        // 認識したら自動停止（仕様）
+        stopCamera();
+
+        if (!id) {
+          setStatus("認識できないQRです（必要なクエリが見つかりません）");
+          showResultCard(false);
+          return;
+        }
+
+        const row = findRowById(id);
+        if (!row) {
+          setStatus(`データが見つかりません（管理番号: ${sanitizeId(id)}）`);
+          showResultCard(false);
+          return;
+        }
+
+        setStatus(`検索OK ✅（管理番号: ${sanitizeId(id)}）`);
+        renderRow(id, row);
+        return;
+      }
+
+      scanTimer = setTimeout(loopScan, SCAN_INTERVAL_MS);
+    }
+
+    /**********************
+     * イベント
+     **********************/
+    btnStartCam.addEventListener("click", startCamera);
+    btnStopCam.addEventListener("click", () => {
+      stopCamera();
+      setStatus("カメラを停止しました。");
+    });
+    btnReloadCsv.addEventListener("click", loadCsv);
+
+    // 初回ロード
+    loadCsv();
+  </script>
+</body>
+</html>
