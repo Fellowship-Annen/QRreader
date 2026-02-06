@@ -169,7 +169,7 @@
     function findRowById(id) {
       const target = sanitizeId(id);
       // 管理番号列で完全一致（trim込み）
-      return csvRows.find(r => sanitizeId(r["管理番号"]) === target) || null;
+      return csvRows.find(r => sanitizeId(r["管理番号(半角)"]) === target) || null;
     }
 
     function renderRow(id, row) {
