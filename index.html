@@ -442,16 +442,23 @@
     loadCsv();
 
     //同一フィラメント表示関数を追加:20260212
+    // ついでに正規化を少し強める（全角スペース対策など）
+    function normText(v) {
+      return String(v ?? "")
+        .replace(/\u3000/g, " ")   // 全角スペース→半角
+        .replace(/\s+/g, " ")     // 連続空白を1つに
+        .trim();
+    }
+
     function renderSimilarList(baseId, baseRow) {
-      // 基準行の特徴（完全一致、trimのみ）
+      // 基準行の特徴（完全一致）
       const baseMaker = normText(getField(baseRow, ["メーカー"]));
       const baseBase  = normText(getField(baseRow, ["母材(ベース)", "母材"]));
       const baseColor = normText(getField(baseRow, ["色"]));
 
       // 基準行の重量（合計に含める）
-      const baseWeightNum = parseWeightToNumber(
-        getField(baseRow, ["重量（ｇ）", "重量(g)", "重量"])
-      );
+      const baseWeightRaw = getField(baseRow, ["重量（ｇ）", "重量(g)", "重量"]);
+      let total = parseWeightToNumber(baseWeightRaw);
 
       // 同一条件の行を抽出（ただし基準行は一覧から除外）
       const matches = csvRows.filter(r => {
@@ -465,16 +472,18 @@
         return maker === baseMaker && mat === baseBase && color === baseColor;
       });
 
-      // 表示を組み立て
+      // ✅ ここから表示
       similarList.innerHTML = "";
-
-      // ✅ セクションは常に表示（0件でも動作が見える）
       similarSection.classList.remove("hidden");
 
-      let total = baseWeightNum;
+      // ✅ “ヒット数”を必ず出す（まず切り分け最優先）
+      setStatus(
+        `検索OK ✅（管理番号: ${sanitizeId(baseId)}）\n` +
+        `同種ヒット: ${matches.length}件`
+      );
 
       if (matches.length === 0) {
-        // ✅ 0件なら「該当なし」を出す
+        // 0件でも動いてるのが分かるように出す
         const line = document.createElement("div");
         line.className = "simRow";
         line.innerHTML = `
@@ -483,9 +492,7 @@
           <div class="simVal">-</div>
         `;
         similarList.appendChild(line);
-
-        // 合計は基準行のみ
-        similarTotalWeight.textContent = String(total);
+        similarTotalWeight.textContent = String(total); // 合計は基準行のみ
         return;
       }
 
@@ -494,6 +501,7 @@
         const loc = normText(getField(r, ["保管場所"]));
         const wRaw = getField(r, ["重量（ｇ）", "重量(g)", "重量"]);
         const wDisp = sanitizeWeight(wRaw);
+
         total += parseWeightToNumber(wRaw);
 
         const line = document.createElement("div");
@@ -506,9 +514,9 @@
         similarList.appendChild(line);
       }
 
-      // 合計（強調）
       similarTotalWeight.textContent = String(total);
     }
+
 
 
   </script>
