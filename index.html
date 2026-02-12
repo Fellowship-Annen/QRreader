@@ -468,24 +468,26 @@
       // 表示を組み立て
       similarList.innerHTML = "";
 
-      // 0件なら、セクション自体を隠す（要件：繰り返し表示なので不要なら非表示が自然）
-      if (matches.length === 0) {
-        similarSection.classList.add("hidden");
-        return;
-      }
-
-      // 1行目にヘッダっぽい表示（任意だけど見やすい）
-      const head = document.createElement("div");
-      head.className = "simRow";
-      head.innerHTML = `
-        <div><div class="simHead">管理番号(半角)</div><div class="simVal">—</div></div>
-        <div><div class="simHead">保管場所</div><div class="simVal">—</div></div>
-        <div><div class="simHead">重量</div><div class="simVal">—</div></div>
-      `;
-      // ヘッダは値が—なので、見た目が気になるなら削除してOK
-      // similarList.appendChild(head);
+      // ✅ セクションは常に表示（0件でも動作が見える）
+      similarSection.classList.remove("hidden");
 
       let total = baseWeightNum;
+
+      if (matches.length === 0) {
+        // ✅ 0件なら「該当なし」を出す
+        const line = document.createElement("div");
+        line.className = "simRow";
+        line.innerHTML = `
+          <div class="simVal">該当なし</div>
+          <div class="simVal">-</div>
+          <div class="simVal">-</div>
+        `;
+        similarList.appendChild(line);
+
+        // 合計は基準行のみ
+        similarTotalWeight.textContent = String(total);
+        return;
+      }
 
       for (const r of matches) {
         const id = sanitizeId(getField(r, ["管理番号(半角)", "管理番号"]));
@@ -506,10 +508,7 @@
 
       // 合計（強調）
       similarTotalWeight.textContent = String(total);
-
-      // セクション表示
-      similarSection.classList.remove("hidden");
-}
+    }
 
 
   </script>
