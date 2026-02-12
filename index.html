@@ -237,9 +237,6 @@
       return "";
     }
 
-    function normText(v) {
-      return String(v ?? "").trim();
-    }
 
     function parseWeightToNumber(v) {
       // 数字/小数点/カンマ以外除去 → カンマ除去 → 数値化
@@ -461,7 +458,7 @@
       let total = parseWeightToNumber(baseWeightRaw);
 
       // 同一条件の行を抽出（ただし基準行は一覧から除外）
-      const matches = csvRows.filter(r => {
+      const sameKind = csvRows.filter(r => {
         const id = sanitizeId(getField(r, ["管理番号(半角)", "管理番号"]));
         if (id === sanitizeId(baseId)) return false;
 
@@ -469,15 +466,15 @@
         const mat   = normText(getField(r, ["母材(ベース)", "母材"]));
         const color = normText(getField(r, ["色"]));
 
-        const wRaw = getField(r, ["重量（ｇ）", "重量(g)", "重量"]);
-        const wNum = parseWeightToNumber(wRaw);
-
-        // 🔹 条件追加：重量が0より大きいものだけ
-        return maker === baseMaker &&
-               mat === baseBase &&
-               color === baseColor &&
-               wNum > 0;
+        return maker === baseMaker && mat === baseBase && color === baseColor;
       });
+
+      const matches = sameKind.filter(r => {
+        const wRaw = getField(r, ["重量（ｇ）", "重量（g）", "重量(g)", "重量（G）", "重量"]);
+        const wNum = parseWeightToNumber(wRaw);
+        return wNum > 0; // ✅ ここで0除外
+      });
+
 
 
       // ✅ ここから表示
