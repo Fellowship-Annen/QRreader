@@ -469,8 +469,16 @@
         const mat   = normText(getField(r, ["母材(ベース)", "母材"]));
         const color = normText(getField(r, ["色"]));
 
-        return maker === baseMaker && mat === baseBase && color === baseColor;
+        const wRaw = getField(r, ["重量（ｇ）", "重量(g)", "重量"]);
+        const wNum = parseWeightToNumber(wRaw);
+
+        // 🔹 条件追加：重量が0より大きいものだけ
+        return maker === baseMaker &&
+               mat === baseBase &&
+               color === baseColor &&
+               wNum > 0;
       });
+
 
       // ✅ ここから表示
       similarList.innerHTML = "";
