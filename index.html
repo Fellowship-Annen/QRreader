@@ -50,6 +50,43 @@
       color: #fff; background: rgba(0,0,0,.45);
       padding: 10px; border-radius: 10px; font-size: 14px;
     }
+    /* 追加:20260212 */
+    .simTitle{
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: #f7f7f7;
+      border-radius: 10px;
+      font-weight: 800;
+    }
+    .simList{
+      margin-top: 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .simRow{
+      display: grid;
+      grid-template-columns: 1.2fr 1.2fr 0.7fr;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .simHead{
+      font-size: 12px;
+      color: #666;
+    }
+    .simVal{
+      font-weight: 700;
+    }
+    .simTotal{
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #fff6d6;
+      font-weight: 900;
+      font-size: 18px;
+    }
   </style>
 </head>
 <body>
@@ -81,6 +118,16 @@
         <div class="label">色</div><div class="value" id="resColor">-</div>
         <div class="label">保管場所</div><div class="value" id="resLoc">-</div>
       </div>
+    </div>
+  </div>
+  <!-- 同一フィラメント一覧 追加:20260212 -->
+  <div id="similarSection" class="hidden" style="margin-top:14px;">
+    <div class="simTitle">同じ種類のフィラメント</div>
+
+    <div id="similarList" class="simList"></div>
+
+    <div class="simTotal">
+      重量 合計（g）: <span id="similarTotalWeight">0</span>
     </div>
   </div>
 
@@ -140,7 +187,11 @@
     const resBase = document.getElementById("resBase");
     const resColor = document.getElementById("resColor");
     const resLoc = document.getElementById("resLoc");
-    const resWeight = document.getElementById("resWeight");
+    const resWeight = document.getElementById("resWeight");//追加:20260212
+    const similarSection = document.getElementById("similarSection");//追加:20260212
+    const similarList = document.getElementById("similarList");//追加:20260212
+    const similarTotalWeight = document.getElementById("similarTotalWeight");//追加:20260212
+
 
     /**********************
      * ユーティリティ
@@ -178,6 +229,25 @@
         return null;
       }
     }
+    //フィラメント一覧追加関数　追加:20260212
+    function getField(row, candidates) {
+      for (const k of candidates) {
+        if (row && row[k] != null && String(row[k]).trim() !== "") return row[k];
+      }
+      return "";
+    }
+
+    function normText(v) {
+      return String(v ?? "").trim();
+    }
+
+    function parseWeightToNumber(v) {
+      // 数字/小数点/カンマ以外除去 → カンマ除去 → 数値化
+      const s = sanitizeWeight(v);        // 既存の sanitizeWeight を利用
+      const n = parseFloat(s.replace(/,/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    }
+
 
     function findRowById(id) {
       const target = sanitizeId(id);
@@ -199,6 +269,8 @@
       resWeight.textContent = w ? w : "（未設定）";
 
       showResultCard(true);
+      renderSimilarList(id, row);//追加:20260212
+
     }
 
     /**********************
@@ -368,6 +440,78 @@
 
     // 初回ロード
     loadCsv();
+
+    //同一フィラメント表示関数を追加:20260212
+    function renderSimilarList(baseId, baseRow) {
+      // 基準行の特徴（完全一致、trimのみ）
+      const baseMaker = normText(getField(baseRow, ["メーカー"]));
+      const baseBase  = normText(getField(baseRow, ["母材(ベース)", "母材"]));
+      const baseColor = normText(getField(baseRow, ["色"]));
+
+      // 基準行の重量（合計に含める）
+      const baseWeightNum = parseWeightToNumber(
+        getField(baseRow, ["重量（ｇ）", "重量(g)", "重量"])
+      );
+
+      // 同一条件の行を抽出（ただし基準行は一覧から除外）
+      const matches = csvRows.filter(r => {
+        const id = sanitizeId(getField(r, ["管理番号(半角)", "管理番号"]));
+        if (id === sanitizeId(baseId)) return false;
+
+        const maker = normText(getField(r, ["メーカー"]));
+        const mat   = normText(getField(r, ["母材(ベース)", "母材"]));
+        const color = normText(getField(r, ["色"]));
+
+        return maker === baseMaker && mat === baseBase && color === baseColor;
+      });
+
+      // 表示を組み立て
+      similarList.innerHTML = "";
+
+      // 0件なら、セクション自体を隠す（要件：繰り返し表示なので不要なら非表示が自然）
+      if (matches.length === 0) {
+        similarSection.classList.add("hidden");
+        return;
+      }
+
+      // 1行目にヘッダっぽい表示（任意だけど見やすい）
+      const head = document.createElement("div");
+      head.className = "simRow";
+      head.innerHTML = `
+        <div><div class="simHead">管理番号(半角)</div><div class="simVal">—</div></div>
+        <div><div class="simHead">保管場所</div><div class="simVal">—</div></div>
+        <div><div class="simHead">重量</div><div class="simVal">—</div></div>
+      `;
+      // ヘッダは値が—なので、見た目が気になるなら削除してOK
+      // similarList.appendChild(head);
+
+      let total = baseWeightNum;
+
+      for (const r of matches) {
+        const id = sanitizeId(getField(r, ["管理番号(半角)", "管理番号"]));
+        const loc = normText(getField(r, ["保管場所"]));
+        const wRaw = getField(r, ["重量（ｇ）", "重量(g)", "重量"]);
+        const wDisp = sanitizeWeight(wRaw);
+        total += parseWeightToNumber(wRaw);
+
+        const line = document.createElement("div");
+        line.className = "simRow";
+        line.innerHTML = `
+          <div class="simVal">${id || "-"}</div>
+          <div class="simVal">${loc || "-"}</div>
+          <div class="simVal">${wDisp || "-"}</div>
+        `;
+        similarList.appendChild(line);
+      }
+
+      // 合計（強調）
+      similarTotalWeight.textContent = String(total);
+
+      // セクション表示
+      similarSection.classList.remove("hidden");
+}
+
+
   </script>
 </body>
 </html>
