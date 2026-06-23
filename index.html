@@ -71,23 +71,32 @@
     }
     .simControls{
       margin-top: 10px;
-      display: flex;
-      align-items: center;
+      display: grid;
       gap: 8px;
     }
-    .simControls label{
+    .simControlsTitle{
       color: #555;
       font-size: 14px;
-      white-space: nowrap;
     }
-    .simControls select{
-      flex: 1;
-      min-width: 0;
+    .simChecks{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .simCheck{
+      display: flex;
+      align-items: center;
+      gap: 6px;
       padding: 9px 10px;
       border: 1px solid #ddd;
       border-radius: 10px;
       background: #fff;
       font-size: 16px;
+      font-weight: 700;
+    }
+    .simCheck input{
+      width: 18px;
+      height: 18px;
     }
     .simList{
       margin-top: 10px;
@@ -181,13 +190,13 @@
       <div id="similarSection" class="hidden" style="margin-top:14px;">
         <div class="simTitle">同じ種類のフィラメント</div>
         <div class="simControls">
-          <label for="similarLocationFilter">保管場所</label>
-          <select id="similarLocationFilter">
-            <option value="ALL">ALL</option>
-            <option value="さんらいず">さんらいず</option>
-            <option value="オーシャン">オーシャン</option>
-            <option value="フォージー">フォージー</option>
-          </select>
+          <div class="simControlsTitle">保管場所</div>
+          <div id="similarLocationFilters" class="simChecks">
+            <label class="simCheck"><input type="checkbox" name="similarLocation" value="ALL">ALL</label>
+            <label class="simCheck"><input type="checkbox" name="similarLocation" value="さんらいず">さんらいず</label>
+            <label class="simCheck"><input type="checkbox" name="similarLocation" value="オーシャン">オーシャン</label>
+            <label class="simCheck"><input type="checkbox" name="similarLocation" value="フォージー">フォージー</label>
+          </div>
         </div>
 
         <div id="similarList" class="simList"></div>
@@ -226,6 +235,8 @@
 
     // ループ間隔（ms）: 200〜500 の範囲
     const SCAN_INTERVAL_MS = 300;
+    const LAST_RESULT_STORAGE_KEY = "filamentQrLastResult";
+    const LOCATION_OPTIONS = ["さんらいず", "オーシャン", "フォージー"];
 
     /**********************
      * 状態
@@ -263,7 +274,8 @@
     const resWeight = document.getElementById("resWeight");//追加:20260212
     const similarSection = document.getElementById("similarSection");//追加:20260212
     const similarList = document.getElementById("similarList");//追加:20260212
-    const similarLocationFilter = document.getElementById("similarLocationFilter");
+    const similarLocationFilters = document.getElementById("similarLocationFilters");
+    const similarLocationInputs = Array.from(document.querySelectorAll('input[name="similarLocation"]'));
     const similarTotalWeight = document.getElementById("similarTotalWeight");//追加:20260212
 
 
@@ -281,6 +293,78 @@
     function setOpenFormUrl(url) {
       currentFormUrl = String(url ?? "").trim();
       btnOpenForm.classList.toggle("hidden", !currentFormUrl);
+    }
+
+    function getSelectedLocations() {
+      const selected = similarLocationInputs
+        .filter(input => input.checked)
+        .map(input => input.value);
+
+      return selected.length ? selected : ["ALL"];
+    }
+
+    function setSelectedLocations(locations) {
+      const selected = Array.isArray(locations) ? locations.map(normText) : [normText(locations)];
+      const useAll = selected.includes("ALL") || selected.length === 0;
+
+      for (const input of similarLocationInputs) {
+        input.checked = useAll ? input.value === "ALL" : selected.includes(input.value);
+      }
+    }
+
+    function setDefaultLocationFilter(row) {
+      const loc = normText(getField(row, ["保管場所"]));
+      setSelectedLocations(LOCATION_OPTIONS.includes(loc) ? [loc] : ["ALL"]);
+    }
+
+    function normalizeLocationFilterChange(changedInput) {
+      if (changedInput.value === "ALL" && changedInput.checked) {
+        for (const input of similarLocationInputs) {
+          input.checked = input.value === "ALL";
+        }
+        return;
+      }
+
+      if (changedInput.value !== "ALL" && changedInput.checked) {
+        const allInput = similarLocationInputs.find(input => input.value === "ALL");
+        if (allInput) allInput.checked = false;
+      }
+
+      if (!similarLocationInputs.some(input => input.checked)) {
+        setSelectedLocations(["ALL"]);
+      }
+    }
+
+    function saveLastResult() {
+      if (!currentSimilarBaseId || !currentFormUrl) return;
+
+      try {
+        sessionStorage.setItem(LAST_RESULT_STORAGE_KEY, JSON.stringify({
+          id: currentSimilarBaseId,
+          formUrl: currentFormUrl,
+          locations: getSelectedLocations()
+        }));
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    function restoreLastResult() {
+      let saved = null;
+
+      try {
+        saved = JSON.parse(sessionStorage.getItem(LAST_RESULT_STORAGE_KEY) || "null");
+      } catch (e) {
+        console.warn(e);
+      }
+
+      if (!saved || !saved.id) return false;
+
+      const row = findRowById(saved.id);
+      if (!row) return false;
+
+      renderRow(saved.id, row, saved.formUrl || "", saved.locations || null);
+      return true;
     }
 
     function sanitizeId(id) {
@@ -331,7 +415,7 @@
       return csvRows.find(r => sanitizeId(r["管理番号(半角)"]) === target) || null;
     }
 
-    function renderRow(id, row, formUrl) {
+    function renderRow(id, row, formUrl, selectedLocations) {
       resId.textContent = sanitizeId(id);
       setOpenFormUrl(formUrl);
 
@@ -346,7 +430,11 @@
       resWeight.textContent = w ? w : "（未設定）";
 
       showResultCard(true);
-      similarLocationFilter.value = "ALL";
+      if (selectedLocations) {
+        setSelectedLocations(selectedLocations);
+      } else {
+        setDefaultLocationFilter(row);
+      }
       renderSimilarList(id, row);//追加:20260212
 
     }
@@ -384,6 +472,7 @@
           `件数: ${csvRows.length}\n` +
           (isProbablyMobile() ? "端末: モバイル判定" : "端末: PC判定（動作はします）")
         );
+        restoreLastResult();
       } catch (e) {
         console.error(e);
         setStatus(
@@ -517,12 +606,18 @@
     btnReloadCsv.addEventListener("click", loadCsv);
     btnOpenForm.addEventListener("click", () => {
       if (currentFormUrl) {
+        saveLastResult();
         window.location.href = currentFormUrl;
       }
     });
-    similarLocationFilter.addEventListener("change", () => {
+    similarLocationFilters.addEventListener("change", (event) => {
+      if (event.target && event.target.name === "similarLocation") {
+        normalizeLocationFilterChange(event.target);
+      }
+
       if (currentSimilarBaseRow) {
         renderSimilarList(currentSimilarBaseId, currentSimilarBaseRow);
+        saveLastResult();
       }
     });
 
@@ -547,11 +642,13 @@
       const baseBase  = normText(getField(baseRow, ["母材(ベース)", "母材"]));
       const baseColor = normText(getField(baseRow, ["色"]));
       const baseLoc   = normText(getField(baseRow, ["保管場所"]));
-      const selectedLoc = normText(similarLocationFilter.value);
+      const selectedLocs = getSelectedLocations();
+      const isAllLocations = selectedLocs.includes("ALL");
+      const selectedLabel = isAllLocations ? "ALL" : selectedLocs.join("、");
 
       // 基準行の重量（合計に含める）
       const baseWeightRaw = getField(baseRow, ["重量（ｇ）", "重量(g)", "重量"]);
-      let total = selectedLoc === "ALL" || baseLoc === selectedLoc
+      let total = isAllLocations || selectedLocs.includes(baseLoc)
         ? parseWeightToNumber(baseWeightRaw)
         : 0;
 
@@ -564,7 +661,7 @@
         const mat   = normText(getField(r, ["母材(ベース)", "母材"]));
         const color = normText(getField(r, ["色"]));
         const loc   = normText(getField(r, ["保管場所"]));
-        const matchesLocation = selectedLoc === "ALL" || loc === selectedLoc;
+        const matchesLocation = isAllLocations || selectedLocs.includes(loc);
 
         return maker === baseMaker && mat === baseBase && color === baseColor && matchesLocation;
       });
@@ -584,7 +681,7 @@
       // ✅ “ヒット数”を必ず出す（まず切り分け最優先）
       setStatus(
         `検索OK ✅（管理番号: ${sanitizeId(baseId)}）\n` +
-        `保管場所: ${selectedLoc}\n` +
+        `保管場所: ${selectedLabel}\n` +
         `同種ヒット: ${matches.length}件`
       );
 
