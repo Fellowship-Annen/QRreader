@@ -58,6 +58,37 @@
       border-radius: 10px;
       font-weight: 800;
     }
+    .formAction{
+      margin-top: 10px;
+    }
+    .openFormBtn{
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      background: #1677ff;
+      color: #fff;
+      font-weight: 800;
+    }
+    .simControls{
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .simControls label{
+      color: #555;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .simControls select{
+      flex: 1;
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fff;
+      font-size: 16px;
+    }
     .simList{
       margin-top: 10px;
       display: grid;
@@ -87,6 +118,31 @@
       font-weight: 900;
       font-size: 18px;
     }
+    #scanFrame {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: min(72vw, 320px);
+      aspect-ratio: 1;
+      transform: translate(-50%, -50%);
+      border: 3px solid rgba(255,255,255,.95);
+      border-radius: 18px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.22);
+      pointer-events: none;
+    }
+    #scanFrame::before,
+    #scanFrame::after {
+      content: "";
+      position: absolute;
+      inset: 14px;
+      border: 3px solid rgba(22,119,255,.95);
+      border-left-color: transparent;
+      border-right-color: transparent;
+      pointer-events: none;
+    }
+    #scanFrame::after {
+      transform: rotate(90deg);
+    }
   </style>
 </head>
 <body>
@@ -111,6 +167,9 @@
           <div class="weight" id="resWeight">-</div>
         </div>
       </div>
+      <div class="formAction">
+        <button id="btnOpenForm" class="openFormBtn hidden">フォームを開く</button>
+      </div>
       <hr style="border:none; border-top:1px solid #eee; margin:10px 0;">
       <div class="grid">
         <div class="label">メーカー</div><div class="value" id="resMaker">-</div>
@@ -121,6 +180,15 @@
       <!-- 同一フィラメント一覧 追加:20260212 -->
       <div id="similarSection" class="hidden" style="margin-top:14px;">
         <div class="simTitle">同じ種類のフィラメント</div>
+        <div class="simControls">
+          <label for="similarLocationFilter">保管場所</label>
+          <select id="similarLocationFilter">
+            <option value="ALL">ALL</option>
+            <option value="さんらいず">さんらいず</option>
+            <option value="オーシャン">オーシャン</option>
+            <option value="フォージー">フォージー</option>
+          </select>
+        </div>
 
         <div id="similarList" class="simList"></div>
 
@@ -134,6 +202,7 @@
   <!-- Camera layer -->
   <div id="cameraLayer" class="hidden">
     <video id="video" playsinline></video>
+    <div id="scanFrame"></div>
     <div id="hint">QRコードをカメラに写してください（認識したら自動で停止します）</div>
     <div id="camBar">
       <button id="btnStopCam">カメラ停止</button>
@@ -167,6 +236,9 @@
     let stream = null;
     let scanning = false;
     let scanTimer = null;
+    let currentFormUrl = "";
+    let currentSimilarBaseId = "";
+    let currentSimilarBaseRow = null;
 
     /**********************
      * UI参照
@@ -182,6 +254,7 @@
     const btnStopCam = document.getElementById("btnStopCam");
 
     const resultCard = document.getElementById("resultCard");
+    const btnOpenForm = document.getElementById("btnOpenForm");
     const resId = document.getElementById("resId");
     const resMaker = document.getElementById("resMaker");
     const resBase = document.getElementById("resBase");
@@ -190,6 +263,7 @@
     const resWeight = document.getElementById("resWeight");//追加:20260212
     const similarSection = document.getElementById("similarSection");//追加:20260212
     const similarList = document.getElementById("similarList");//追加:20260212
+    const similarLocationFilter = document.getElementById("similarLocationFilter");
     const similarTotalWeight = document.getElementById("similarTotalWeight");//追加:20260212
 
 
@@ -202,6 +276,11 @@
 
     function showResultCard(show) {
       resultCard.classList.toggle("hidden", !show);
+    }
+
+    function setOpenFormUrl(url) {
+      currentFormUrl = String(url ?? "").trim();
+      btnOpenForm.classList.toggle("hidden", !currentFormUrl);
     }
 
     function sanitizeId(id) {
@@ -252,8 +331,9 @@
       return csvRows.find(r => sanitizeId(r["管理番号(半角)"]) === target) || null;
     }
 
-    function renderRow(id, row) {
+    function renderRow(id, row, formUrl) {
       resId.textContent = sanitizeId(id);
+      setOpenFormUrl(formUrl);
 
       // 表示項目
       resMaker.textContent = row["メーカー"] ?? "-";
@@ -266,6 +346,7 @@
       resWeight.textContent = w ? w : "（未設定）";
 
       showResultCard(true);
+      similarLocationFilter.value = "ALL";
       renderSimilarList(id, row);//追加:20260212
 
     }
@@ -418,7 +499,7 @@
         }
 
         setStatus(`検索OK ✅（管理番号: ${sanitizeId(id)}）`);
-        renderRow(id, row);
+        renderRow(id, row, urlStr);
         return;
       }
 
@@ -434,6 +515,16 @@
       setStatus("カメラを停止しました。");
     });
     btnReloadCsv.addEventListener("click", loadCsv);
+    btnOpenForm.addEventListener("click", () => {
+      if (currentFormUrl) {
+        window.location.href = currentFormUrl;
+      }
+    });
+    similarLocationFilter.addEventListener("change", () => {
+      if (currentSimilarBaseRow) {
+        renderSimilarList(currentSimilarBaseId, currentSimilarBaseRow);
+      }
+    });
 
     // 初回ロード
     loadCsv();
@@ -448,15 +539,21 @@
     }
 
     function renderSimilarList(baseId, baseRow) {
+      currentSimilarBaseId = sanitizeId(baseId);
+      currentSimilarBaseRow = baseRow;
+
       // 基準行の特徴（完全一致）
       const baseMaker = normText(getField(baseRow, ["メーカー"]));
       const baseBase  = normText(getField(baseRow, ["母材(ベース)", "母材"]));
       const baseColor = normText(getField(baseRow, ["色"]));
       const baseLoc   = normText(getField(baseRow, ["保管場所"]));
+      const selectedLoc = normText(similarLocationFilter.value);
 
       // 基準行の重量（合計に含める）
       const baseWeightRaw = getField(baseRow, ["重量（ｇ）", "重量(g)", "重量"]);
-      let total = parseWeightToNumber(baseWeightRaw);
+      let total = selectedLoc === "ALL" || baseLoc === selectedLoc
+        ? parseWeightToNumber(baseWeightRaw)
+        : 0;
 
       // 同一条件の行を抽出（ただし基準行は一覧から除外）
       const sameKind = csvRows.filter(r => {
@@ -467,8 +564,9 @@
         const mat   = normText(getField(r, ["母材(ベース)", "母材"]));
         const color = normText(getField(r, ["色"]));
         const loc   = normText(getField(r, ["保管場所"]));
+        const matchesLocation = selectedLoc === "ALL" || loc === selectedLoc;
 
-        return maker === baseMaker && mat === baseBase && color === baseColor && loc === baseLoc;
+        return maker === baseMaker && mat === baseBase && color === baseColor && matchesLocation;
       });
 
       const matches = sameKind.filter(r => {
@@ -486,6 +584,7 @@
       // ✅ “ヒット数”を必ず出す（まず切り分け最優先）
       setStatus(
         `検索OK ✅（管理番号: ${sanitizeId(baseId)}）\n` +
+        `保管場所: ${selectedLoc}\n` +
         `同種ヒット: ${matches.length}件`
       );
 
@@ -513,11 +612,21 @@
 
         const line = document.createElement("div");
         line.className = "simRow";
-        line.innerHTML = `
-          <div class="simVal">${id || "-"}</div>
-          <div class="simVal">${loc || "-"}</div>
-          <div class="simVal">${wDisp || "-"}</div>
-        `;
+        const idEl = document.createElement("div");
+        const locEl = document.createElement("div");
+        const weightEl = document.createElement("div");
+
+        idEl.className = "simVal";
+        locEl.className = "simVal";
+        weightEl.className = "simVal";
+
+        idEl.textContent = id || "-";
+        locEl.textContent = loc || "-";
+        weightEl.textContent = wDisp || "-";
+
+        line.appendChild(idEl);
+        line.appendChild(locEl);
+        line.appendChild(weightEl);
         similarList.appendChild(line);
       }
 
