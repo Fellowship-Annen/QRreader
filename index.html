@@ -44,6 +44,14 @@
     .searchResultId { font-size: 17px; font-weight: 800; }
     .searchResultDetails { margin-top: 5px; color: #444; line-height: 1.6; }
     .searchResultSummary { font-weight: 800; }
+    .searchSubtotals { display: grid; gap: 6px; padding: 10px; background: #f3f3f3; border-radius: 8px; }
+    .searchSubtotalTitle { color: #555; font-size: 14px; font-weight: 800; }
+    .searchSubtotalRow {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px; align-items: baseline;
+    }
+    .searchSubtotalLocation { font-weight: 800; }
+    .searchSubtotalValue { white-space: nowrap; }
 
     /* camera layer */
     #cameraLayer {
@@ -493,6 +501,56 @@
         empty.textContent = "条件に一致するフィラメントはありません。";
         searchResults.appendChild(empty);
         return;
+      }
+
+      const subtotals = new Map();
+      for (const row of matches) {
+        const rowLocation = normText(getField(row, ["保管場所"])) || "未設定";
+        const weight = parseWeightToNumber(
+          getField(row, ["重量（ｇ）", "重量（g）", "重量(g)", "重量"])
+        );
+        const subtotal = subtotals.get(rowLocation) || { count: 0, weight: 0 };
+        subtotal.count += 1;
+        subtotal.weight += weight;
+        subtotals.set(rowLocation, subtotal);
+      }
+
+      if (subtotals.size > 1) {
+        const subtotalList = document.createElement("div");
+        subtotalList.className = "searchSubtotals";
+
+        const subtotalTitle = document.createElement("div");
+        subtotalTitle.className = "searchSubtotalTitle";
+        subtotalTitle.textContent = "保管場所ごとの小計";
+        subtotalList.appendChild(subtotalTitle);
+
+        const orderedLocations = [
+          ...LOCATION_OPTIONS.filter(item => subtotals.has(item)),
+          ...[...subtotals.keys()].filter(item => !LOCATION_OPTIONS.includes(item)).sort()
+        ];
+
+        for (const rowLocation of orderedLocations) {
+          const subtotal = subtotals.get(rowLocation);
+          const subtotalRow = document.createElement("div");
+          subtotalRow.className = "searchSubtotalRow";
+
+          const locationEl = document.createElement("div");
+          locationEl.className = "searchSubtotalLocation";
+          locationEl.textContent = rowLocation;
+
+          const countEl = document.createElement("div");
+          countEl.className = "searchSubtotalValue";
+          countEl.textContent = `${subtotal.count}本`;
+
+          const weightEl = document.createElement("div");
+          weightEl.className = "searchSubtotalValue";
+          weightEl.textContent = `${subtotal.weight.toLocaleString("ja-JP")}g`;
+
+          subtotalRow.append(locationEl, countEl, weightEl);
+          subtotalList.appendChild(subtotalRow);
+        }
+
+        searchResults.appendChild(subtotalList);
       }
 
       for (const row of matches) {
