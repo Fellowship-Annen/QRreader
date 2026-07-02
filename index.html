@@ -471,9 +471,13 @@
       const base = normText(searchBase.value);
       const color = normText(searchColor.value);
       const location = normText(searchLocation.value);
-      const matches = rowsMatchingSearch(maker, base, color).filter(row =>
-        location === "ALL" || normText(getField(row, ["保管場所"])) === location
-      );
+      const matches = rowsMatchingSearch(maker, base, color).filter(row => {
+        const weight = getField(row, ["重量（ｇ）", "重量（g）", "重量(g)", "重量"]);
+        const matchesLocation = location === "ALL" ||
+          normText(getField(row, ["保管場所"])) === location;
+
+        return matchesLocation && parseWeightToNumber(weight) > 0;
+      });
 
       searchResults.innerHTML = "";
       searchResults.classList.remove("hidden");
