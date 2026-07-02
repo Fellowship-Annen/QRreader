@@ -29,6 +29,21 @@
     .value { font-weight: 600; }
     .weight { font-size: 20px; font-weight: 800; }
     .hidden { display: none !important; }
+    .searchPanel { margin-top: 12px; }
+    .searchFields { display: grid; gap: 12px; }
+    .searchField { display: grid; gap: 5px; }
+    .searchField label { color: #555; font-size: 14px; font-weight: 700; }
+    .searchField select {
+      width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 8px;
+      background: #fff; font-size: 16px;
+    }
+    .searchActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+    .searchPrimary { border: 0; border-radius: 8px; background: #1677ff; color: #fff; font-weight: 800; }
+    .searchResults { margin-top: 14px; display: grid; gap: 8px; }
+    .searchResultRow { padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
+    .searchResultId { font-size: 17px; font-weight: 800; }
+    .searchResultDetails { margin-top: 5px; color: #444; line-height: 1.6; }
+    .searchResultSummary { font-weight: 800; }
 
     /* camera layer */
     #cameraLayer {
@@ -160,6 +175,7 @@
 
     <div class="row">
       <button id="btnStartCam" disabled>カメラ起動</button>
+      <button id="btnOpenSearch" disabled>フィラメント検索</button>
       <button id="btnReloadCsv">データ更新</button>
     </div>
 
@@ -205,6 +221,37 @@
           重量 合計（g）: <span id="similarTotalWeight">0</span>
         </div>
       </div>
+    </div>
+
+    <div class="card searchPanel hidden" id="searchPanel">
+      <div class="searchFields">
+        <div class="searchField">
+          <label for="searchMaker">メーカー</label>
+          <select id="searchMaker"><option value="">選択してください</option></select>
+        </div>
+        <div class="searchField">
+          <label for="searchBase">母材（ベース）</label>
+          <select id="searchBase" disabled><option value="">メーカーを選択してください</option></select>
+        </div>
+        <div class="searchField">
+          <label for="searchColor">色</label>
+          <select id="searchColor" disabled><option value="">母材を選択してください</option></select>
+        </div>
+        <div class="searchField">
+          <label for="searchLocation">保管場所</label>
+          <select id="searchLocation">
+            <option value="ALL">ALL</option>
+            <option value="フォージー">フォージー</option>
+            <option value="オーシャン">オーシャン</option>
+            <option value="さんらいず">さんらいず</option>
+          </select>
+        </div>
+      </div>
+      <div class="searchActions">
+        <button id="btnCloseSearch">戻る</button>
+        <button id="btnRunSearch" class="searchPrimary" disabled>表示</button>
+      </div>
+      <div id="searchResults" class="searchResults hidden"></div>
     </div>
   </div>
 
@@ -256,7 +303,16 @@
      **********************/
     const statusEl = document.getElementById("status");
     const btnStartCam = document.getElementById("btnStartCam");
+    const btnOpenSearch = document.getElementById("btnOpenSearch");
     const btnReloadCsv = document.getElementById("btnReloadCsv");
+    const searchPanel = document.getElementById("searchPanel");
+    const searchMaker = document.getElementById("searchMaker");
+    const searchBase = document.getElementById("searchBase");
+    const searchColor = document.getElementById("searchColor");
+    const searchLocation = document.getElementById("searchLocation");
+    const btnCloseSearch = document.getElementById("btnCloseSearch");
+    const btnRunSearch = document.getElementById("btnRunSearch");
+    const searchResults = document.getElementById("searchResults");
 
     const cameraLayer = document.getElementById("cameraLayer");
     const mainLayer = document.getElementById("mainLayer");
@@ -367,6 +423,98 @@
       return true;
     }
 
+    function uniqueSortedValues(rows, candidates) {
+      return [...new Set(rows.map(row => normText(getField(row, candidates))).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, "ja"));
+    }
+
+    function setSelectOptions(select, values, placeholder) {
+      select.innerHTML = "";
+      const first = document.createElement("option");
+      first.value = "";
+      first.textContent = placeholder;
+      select.appendChild(first);
+
+      for (const value of values) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      }
+    }
+
+    function resetSearchResults() {
+      searchResults.innerHTML = "";
+      searchResults.classList.add("hidden");
+    }
+
+    function initializeFilamentSearch() {
+      setSelectOptions(searchMaker, uniqueSortedValues(csvRows, ["メーカー"]), "選択してください");
+      setSelectOptions(searchBase, [], "メーカーを選択してください");
+      setSelectOptions(searchColor, [], "母材を選択してください");
+      searchBase.disabled = true;
+      searchColor.disabled = true;
+      btnRunSearch.disabled = true;
+      resetSearchResults();
+    }
+
+    function rowsMatchingSearch(maker, base, color = "") {
+      return csvRows.filter(row =>
+        normText(getField(row, ["メーカー"])) === maker &&
+        normText(getField(row, ["母材(ベース)", "母材"])) === base &&
+        (!color || normText(getField(row, ["色"])) === color)
+      );
+    }
+
+    function renderFilamentSearchResults() {
+      const maker = normText(searchMaker.value);
+      const base = normText(searchBase.value);
+      const color = normText(searchColor.value);
+      const location = normText(searchLocation.value);
+      const matches = rowsMatchingSearch(maker, base, color).filter(row =>
+        location === "ALL" || normText(getField(row, ["保管場所"])) === location
+      );
+
+      searchResults.innerHTML = "";
+      searchResults.classList.remove("hidden");
+
+      const summary = document.createElement("div");
+      summary.className = "searchResultSummary";
+      summary.textContent = `検索結果: ${matches.length}件`;
+      searchResults.appendChild(summary);
+
+      if (!matches.length) {
+        const empty = document.createElement("div");
+        empty.className = "searchResultRow";
+        empty.textContent = "条件に一致するフィラメントはありません。";
+        searchResults.appendChild(empty);
+        return;
+      }
+
+      for (const row of matches) {
+        const item = document.createElement("div");
+        item.className = "searchResultRow";
+
+        const id = document.createElement("div");
+        id.className = "searchResultId";
+        id.textContent = `管理番号: ${sanitizeId(getField(row, ["管理番号(半角)", "管理番号"])) || "-"}`;
+
+        const details = document.createElement("div");
+        details.className = "searchResultDetails";
+        const weight = sanitizeWeight(getField(row, ["重量（ｇ）", "重量（g）", "重量(g)", "重量"]));
+        details.textContent = [
+          `メーカー: ${normText(getField(row, ["メーカー"])) || "-"}`,
+          `母材: ${normText(getField(row, ["母材(ベース)", "母材"])) || "-"}`,
+          `色: ${normText(getField(row, ["色"])) || "-"}`,
+          `保管場所: ${normText(getField(row, ["保管場所"])) || "-"}`,
+          `重量（g）: ${weight || "-"}`
+        ].join(" / ");
+
+        item.append(id, details);
+        searchResults.appendChild(item);
+      }
+    }
+
     function sanitizeId(id) {
       // 念のため前後空白除去（完全一致前提だけど安全策）
       return String(id ?? "").trim();
@@ -445,6 +593,7 @@
     async function loadCsv() {
       csvLoaded = false;
       btnStartCam.disabled = true;
+      btnOpenSearch.disabled = true;
       showResultCard(false);
 
       setStatus("CSVを取得しています…");
@@ -466,6 +615,8 @@
         csvRows = parsed.data || [];
         csvLoaded = true;
         btnStartCam.disabled = false;
+        btnOpenSearch.disabled = false;
+        initializeFilamentSearch();
 
         setStatus(
           "CSV取得OK ✅\n" +
@@ -599,6 +750,41 @@
      * イベント
      **********************/
     btnStartCam.addEventListener("click", startCamera);
+    btnOpenSearch.addEventListener("click", () => {
+      resultCard.classList.add("hidden");
+      searchPanel.classList.remove("hidden");
+      btnOpenSearch.disabled = true;
+    });
+    btnCloseSearch.addEventListener("click", () => {
+      searchPanel.classList.add("hidden");
+      btnOpenSearch.disabled = !csvLoaded;
+      if (currentSimilarBaseRow) resultCard.classList.remove("hidden");
+    });
+    searchMaker.addEventListener("change", () => {
+      const maker = normText(searchMaker.value);
+      const rows = csvRows.filter(row => normText(getField(row, ["メーカー"])) === maker);
+      setSelectOptions(searchBase, uniqueSortedValues(rows, ["母材(ベース)", "母材"]), maker ? "選択してください" : "メーカーを選択してください");
+      setSelectOptions(searchColor, [], "母材を選択してください");
+      searchBase.disabled = !maker;
+      searchColor.disabled = true;
+      btnRunSearch.disabled = true;
+      resetSearchResults();
+    });
+    searchBase.addEventListener("change", () => {
+      const maker = normText(searchMaker.value);
+      const base = normText(searchBase.value);
+      const rows = base ? rowsMatchingSearch(maker, base) : [];
+      setSelectOptions(searchColor, uniqueSortedValues(rows, ["色"]), base ? "選択してください" : "母材を選択してください");
+      searchColor.disabled = !base;
+      btnRunSearch.disabled = true;
+      resetSearchResults();
+    });
+    searchColor.addEventListener("change", () => {
+      btnRunSearch.disabled = !searchColor.value;
+      resetSearchResults();
+    });
+    searchLocation.addEventListener("change", resetSearchResults);
+    btnRunSearch.addEventListener("click", renderFilamentSearchResults);
     btnStopCam.addEventListener("click", () => {
       stopCamera();
       setStatus("カメラを停止しました。");
