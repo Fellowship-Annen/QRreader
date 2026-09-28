@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="icon" href="./favicon.ico">
+  <meta name="theme-color" content="#ffffff">
+  <title>フィラメント新規登録</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #222;
+      background: #f6f7f8;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+    }
+    .wrap { width: min(100%, 620px); margin: 0 auto; padding: 16px; }
+    h1 { margin: 0; font-size: 24px; }
+    .lead { margin: 6px 0 0; color: #555; font-size: 14px; }
+    .card {
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .hidden { display: none !important; }
+    .status {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #eef4ff;
+      color: #174a91;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .status.success { background: #eaf7ee; color: #176b35; }
+    .status.error { background: #fff0f0; color: #b42318; }
+    .field { display: grid; gap: 6px; margin-top: 13px; }
+    .field:first-child { margin-top: 0; }
+    label { color: #444; font-size: 14px; font-weight: 700; }
+    .required { color: #c62828; }
+    input, select, textarea {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #aaa;
+      border-radius: 7px;
+      background: #fff;
+      color: #222;
+      font: inherit;
+      font-size: 16px;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #1677ff;
+      outline: 3px solid rgba(22,119,255,.16);
+    }
+    input[readonly] { background: #f1f1f1; color: #444; font-weight: 800; }
+    textarea { min-height: 88px; resize: vertical; }
+    .actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 18px; }
+    button, .backLink {
+      min-height: 46px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 800;
+    }
+    button { border: 0; background: #1677ff; color: #fff; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .backLink {
+      display: grid;
+      place-items: center;
+      border: 1px solid #aaa;
+      background: #fff;
+      color: #333;
+      text-decoration: none;
+    }
+    .sectionTitle { margin: 0 0 10px; font-size: 18px; }
+    .dataGrid { display: grid; grid-template-columns: 105px minmax(0, 1fr); gap: 9px 10px; }
+    .dataLabel { color: #666; }
+    .dataValue { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+    @media (max-width: 420px) {
+      .wrap { padding: 12px; }
+      h1 { font-size: 21px; }
+      .actions { grid-template-columns: 1fr; }
+      .actions button { grid-row: 1; }
+      .dataGrid { grid-template-columns: 90px minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>フィラメント新規登録</h1>
+    <p class="lead">QRコードの管理番号を確認して、在庫台帳へ登録します。</p>
+
+    <div id="status" class="status" role="status" aria-live="polite">登録状況を確認しています...</div>
+
+    <section id="registerCard" class="card hidden">
+      <h2 class="sectionTitle">登録内容</h2>
+      <form id="registerForm">
+        <div class="field">
+          <label for="filamentId">管理番号</label>
+          <input id="filamentId" name="id" type="text" readonly />
+        </div>
+        <div class="field">
+          <label for="location">保管場所 <span class="required">必須</span></label>
+          <select id="location" name="location" required>
+            <option value="">選択してください</option>
+            <option value="オーシャン">オーシャン</option>
+            <option value="さんらいず">さんらいず</option>
+            <option value="フォージー">フォージー</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="color">色 <span class="required">必須</span></label>
+          <input id="color" name="color" type="text" list="colorOptions" required placeholder="候補から選択または入力" />
+        </div>
+        <div class="field">
+          <label for="base">母材（ベース） <span class="required">必須</span></label>
+          <input id="base" name="base" type="text" list="baseOptions" required placeholder="候補から選択または入力" />
+        </div>
+        <div class="field">
+          <label for="sub">サブカテゴリ <span class="required">必須</span></label>
+          <input id="sub" name="sub" type="text" list="subOptions" required placeholder="候補から選択または入力" />
+        </div>
+        <div class="field">
+          <label for="maker">メーカー <span class="required">必須</span></label>
+          <input id="maker" name="maker" type="text" list="makerOptions" required placeholder="候補から選択または入力" autocomplete="organization" />
+        </div>
+        <div class="field">
+          <label for="weight">初期重量（g） <span class="required">必須</span></label>
+          <input id="weight" name="weight" type="number" min="0" step="1" inputmode="numeric" value="1000" required />
+        </div>
+        <div class="field">
+          <label for="note">備考 <span class="required">必須</span></label>
+          <textarea id="note" name="note" required></textarea>
+        </div>
+        <div class="actions">
+          <a class="backLink" href="./index.html">戻る</a>
+          <button id="submitButton" type="submit">登録する</button>
+        </div>
+      </form>
+      <datalist id="colorOptions"></datalist>
+      <datalist id="baseOptions"></datalist>
+      <datalist id="subOptions"></datalist>
+      <datalist id="makerOptions"></datalist>
+    </section>
+
+    <section id="existingCard" class="card hidden">
+      <h2 class="sectionTitle">登録済みのフィラメント</h2>
+      <div id="existingData" class="dataGrid"></div>
+      <div class="actions">
+        <a class="backLink" href="./index.html">戻る</a>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // GAS Webアプリの /exec URLへ置き換えてください。
+    const GAS_API_URL = "";
+    const REQUEST_TIMEOUT_MS = 15000;
+    const REGISTRATION_OPTIONS = {
+      color: ["赤", "黒", "白", "青", "灰色", "緑", "ナチュラル", "マゼンダ", "ネイビー", "ネイビーブルー", "ブリックレッド"],
+      base: ["PLA", "PLA＋", "ABS", "PETG", "ASA", "TPU"],
+      sub: ["標準", "silk", "wood", "carbon", "サポート用"],
+      maker: ["CC3D", "kexcelled", "bambu", "OVERTURE", "ノーブランド"]
+    };
+
+    const statusEl = document.getElementById("status");
+    const registerCard = document.getElementById("registerCard");
+    const existingCard = document.getElementById("existingCard");
+    const existingData = document.getElementById("existingData");
+    const registerForm = document.getElementById("registerForm");
+    const submitButton = document.getElementById("submitButton");
+    const filamentId = document.getElementById("filamentId");
+
+    function initializeCandidateLists() {
+      for (const [field, values] of Object.entries(REGISTRATION_OPTIONS)) {
+        const list = document.getElementById(`${field}Options`);
+        list.replaceChildren(...values.map(value => {
+          const option = document.createElement("option");
+          option.value = value;
+          return option;
+        }));
+      }
+    }
+
+    const FIELD_LABELS = [
+      ["id", "管理番号"],
+      ["maker", "メーカー"],
+      ["base", "母材"],
+      ["sub", "サブカテゴリ"],
+      ["color", "色"],
+      ["location", "保管場所"],
+      ["weight", "重量（g）"],
+      ["person", "担当"],
+      ["note", "備考"]
+    ];
+
+    function setStatus(message, type = "normal") {
+      statusEl.textContent = message;
+      statusEl.classList.toggle("success", type === "success");
+      statusEl.classList.toggle("error", type === "error");
+    }
+
+    function getApiUrl() {
+      const url = GAS_API_URL.trim();
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) {
+        throw new Error("GAS_API_URLにデプロイ済みWebアプリのURLを設定してください。");
+      }
+      return url;
+    }
+
+    function getRequestErrorMessage(error) {
+      if (error.name === "AbortError") {
+        return "通信がタイムアウトしました。通信状況を確認して、もう一度お試しください。";
+      }
+      if (error instanceof TypeError) {
+        return "GASとの通信に失敗しました。ネットワーク、公開設定、またはCORS設定を確認してください。";
+      }
+      return error.message || "処理に失敗しました。";
+    }
+
+    async function fetchJson(url, options = {}) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        const text = await response.text();
+        if (!response.ok) throw new Error(`GAS通信エラー: HTTP ${response.status}`);
+        if (!text.trim()) throw new Error("GASから空の応答が返されました。");
+        if (text.trim().startsWith("<")) {
+          throw new Error("GASからJSONではなくHTMLが返されました。デプロイURLと公開設定を確認してください。");
+        }
+        try {
+          return JSON.parse(text);
+        } catch {
+          throw new Error("GASの応答をJSONとして読み取れませんでした。");
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    function showRegistrationForm(id) {
+      filamentId.value = id;
+      existingCard.classList.add("hidden");
+      registerCard.classList.remove("hidden");
+      setStatus("未登録の管理番号です。フィラメント情報を入力してください。");
+    }
+
+    function showExistingData(data, message = "この管理番号は登録済みです。") {
+      existingData.replaceChildren();
+      for (const [key, label] of FIELD_LABELS) {
+        const labelEl = document.createElement("div");
+        labelEl.className = "dataLabel";
+        labelEl.textContent = label;
+        const valueEl = document.createElement("div");
+        valueEl.className = "dataValue";
+        const value = data[key];
+        valueEl.textContent = value === null || value === undefined || value === "" ? "-" : String(value);
+        existingData.append(labelEl, valueEl);
+      }
+      registerCard.classList.add("hidden");
+      existingCard.classList.remove("hidden");
+      setStatus(message, "success");
+    }
+
+    async function lookupId(id, successMessage) {
+      setStatus("管理番号の登録状況を確認しています...");
+      registerCard.classList.add("hidden");
+      existingCard.classList.add("hidden");
+      try {
+        const url = new URL(getApiUrl());
+        url.searchParams.set("id", id);
+        const data = await fetchJson(url.toString(), { cache: "no-store" });
+        if (data.ok) {
+          showExistingData(data, successMessage || "この管理番号は登録済みです。");
+          return;
+        }
+        if (data.error === "ID_NOT_FOUND") {
+          showRegistrationForm(id);
+          return;
+        }
+        throw new Error(data.error || "登録状況を確認できませんでした。");
+      } catch (error) {
+        console.error("管理番号検索エラー:", error);
+        setStatus(getRequestErrorMessage(error), "error");
+      }
+    }
+
+    function getRegistrationPayload() {
+      const formData = new FormData(registerForm);
+      return {
+        action: "register",
+        id: filamentId.value.trim(),
+        maker: String(formData.get("maker") || "").trim(),
+        base: String(formData.get("base") || "").trim(),
+        sub: String(formData.get("sub") || "").trim(),
+        color: String(formData.get("color") || "").trim(),
+        location: String(formData.get("location") || "").trim(),
+        weight: Number(formData.get("weight")),
+        person: "",
+        note: String(formData.get("note") || "").trim()
+      };
+    }
+
+    registerForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!registerForm.reportValidity()) return;
+
+      if (!GAS_API_URL.trim()) {
+        setStatus("現在は登録ページのレイアウト確認段階です。GASへの送信処理はまだ接続していません。", "error");
+        return;
+      }
+
+      const payload = getRegistrationPayload();
+      if (!Number.isFinite(payload.weight) || payload.weight < 0) {
+        setStatus("重量は0以上の数値で入力してください。", "error");
+        return;
+      }
+
+      submitButton.disabled = true;
+      setStatus("在庫台帳へ登録しています...");
+      try {
+        const data = await fetchJson(getApiUrl(), {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "text/plain;charset=UTF-8" },
+          body: JSON.stringify(payload)
+        });
+        if (data.ok) {
+          await lookupId(payload.id, "登録が完了しました。");
+          return;
+        }
+        if (data.error === "ID_ALREADY_EXISTS") {
+          await lookupId(payload.id, "この管理番号はすでに登録されています。");
+          return;
+        }
+        throw new Error(data.error || "登録に失敗しました。");
+      } catch (error) {
+        console.error("新規登録エラー:", error);
+        setStatus(getRequestErrorMessage(error), "error");
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+
+    const requestedId = new URLSearchParams(window.location.search).get("id");
+    const normalizedId = String(requestedId || "").trim();
+    initializeCandidateLists();
+    if (!normalizedId) {
+      registerCard.classList.remove("hidden");
+      setStatus("URLに管理番号がありません。QRコードを読み直してください。", "error");
+    } else if (!GAS_API_URL.trim()) {
+      showRegistrationForm(normalizedId);
+      setStatus("登録ページのレイアウト確認用です。GASへの送信処理はまだ接続していません。");
+    } else {
+      filamentId.value = normalizedId;
+      lookupId(normalizedId);
+    }
+  </script>
+</body>
+</html>
